@@ -1,4 +1,4 @@
-FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu22.04
+FROM nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
 
 ENV REFRESHED_AT 2024-08-12
 
@@ -37,26 +37,23 @@ RUN apt-get update && apt-get install -y \
     software-properties-common \
     apt-transport-https \
     ca-certificates \
-    git \
     unzip \
     ffmpeg \
-    # jq \
-    tzdata && \
+    jq \
+    tzdata \
+    # Install Python 3 (default is 3.10 in Ubuntu 22.04) and pip
+    python3 \
+    python3-pip \
+    python3-venv && \
     ln -fs /usr/share/zoneinfo/$TZ /etc/localtime && \
     dpkg-reconfigure -f noninteractive tzdata && \
-    rm -rf /var/lib/apt/lists/*
-
-### Install Miniconda
-RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh && \
-bash miniconda.sh -b -p /opt/conda && \
-rm miniconda.sh
-
-### Add Conda to the PATH
-ENV PATH /opt/conda/bin:$PATH
+    rm -rf /var/lib/apt/lists/* && \
+    # Ensure pip is up to date
+    python3 -m pip install --no-cache-dir --upgrade pip
 
 ### Add all install scripts for further steps
-ADD ./src/common/install/ $INST_SCRIPTS/
-ADD ./src/debian/install/ $INST_SCRIPTS/
+COPY ./src/common/install/ $INST_SCRIPTS/
+COPY ./src/debian/install/ $INST_SCRIPTS/
 RUN chmod 765 $INST_SCRIPTS/*
 
 ### Install some common tools
@@ -82,63 +79,18 @@ RUN $INST_SCRIPTS/libnss_wrapper.sh
 ADD ./src/common/scripts $STARTUPDIR
 RUN $INST_SCRIPTS/set_user_permission.sh $STARTUPDIR $HOME
 
-### Create conda environment
-RUN conda create -n visomaster python=3.10.13 && conda clean --all -y
+### Install VisoMaster and dependencies
+WORKDIR /workspace
+RUN git clone https://github.com/remphan1618/VisoMaster.git && \
+    cd VisoMaster
+RUN pip install --no-cache-dir -r requirements.txt
 
-### Activate the environment
-ENV CONDA_DEFAULT_ENV visomaster
-RUN echo "source activate $CONDA_DEFAULT_ENV" >> ~/.bashrc
-ENV PATH /opt/conda/envs/$CONDA_DEFAULT_ENV/bin:$PATH
-
-
-# # FROM nvidia/cuda:12.4.1-cudnn8-runtime-ubuntu20.04
-# FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
-
-# # Set working directory
-# WORKDIR /app
-
-# # Install system dependencies
-# RUN apt-get update && apt-get install -y \
-#     python3.10 \
-#     python3-pip \
-#     git \
-#     curl \
-#     && rm -rf /var/lib/apt/lists/*
-
-# # Copy requirements file
-# #COPY requirements_cu124.txt .
-# #COPY requirements_cu118.txt .
-RUN git clone https://github.com/visomaster/VisoMaster.git
-WORKDIR $HOME/VisoMaster
-
-# Install Python dependencies
-# RUN pip3 install --no-cache-dir -r requirements_cu124.txt
-RUN pip3 install --no-cache-dir -r requirements_cu118.txt
-RUN pip3 install scikit-image
-
-# Copy the rest of the application
-# COPY . .
-
-# Download models (you might want to comment this out if you're mounting models volume)
-# RUN apt-get update && apt-get install -y \
-#     curl \
-#     && rm -rf /var/lib/apt/lists/*
-#RUN curl -L https://github.com/visomaster/visomaster-assets/releases/download/v0.1.0_dp/ffmpeg.exe -o ./dependencies/ffmpeg.exe
-RUN wget -O ./dependencies/ffmpeg.exe https://github.com/visomaster/visomaster-assets/releases/download/v0.1.0_dp/ffmpeg.exe
-RUN python3 download_models.py
-
-
-# # Command to run when starting the container
-# CMD ["python3", "main.py"]  # Replace with your actual entry point
-### Install jupyterlab
-RUN pip install jupyterlab
-EXPOSE 8080
+### Install jupyterlab using pip
+RUN pip install --no-cache-dir jupyterlab
 
 ### Install filebrowser
 RUN wget -O - https://raw.githubusercontent.com/filebrowser/get/master/get.sh | bash
 EXPOSE 8585
-
-
 
 # nvidia problem
 RUN apt-get update && apt-get install -y \
@@ -170,6 +122,5 @@ RUN chmod 765 /dockerstartup/vnc_startup.sh
 
 ENV VNC_RESOLUTION=1280x1024
 
-# ENV QT_QPA_PLATFORM=wayland
 ENTRYPOINT ["/dockerstartup/vnc_startup.sh"]
 CMD ["--wait"]
